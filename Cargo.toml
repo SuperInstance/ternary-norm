@@ -1,4 +1,6 @@
 [package]
+description = "ternary-norm - SuperInstance ecosystem crate"
+repository = "https://github.com/SuperInstance/ternary-norm"
 name = "ternary-norm"
 version = "0.1.0"
 edition = "2024"
