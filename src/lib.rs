@@ -18,12 +18,20 @@ pub struct Tensor2D {
 
 impl Tensor2D {
     pub fn new(data: Vec<f64>, rows: usize, cols: usize) -> Self {
-        assert_eq!(data.len(), rows * cols, "data length must equal rows × cols");
+        assert_eq!(
+            data.len(),
+            rows * cols,
+            "data length must equal rows × cols"
+        );
         Self { data, rows, cols }
     }
 
     pub fn zeros(rows: usize, cols: usize) -> Self {
-        Self { data: vec![0.0; rows * cols], rows, cols }
+        Self {
+            data: vec![0.0; rows * cols],
+            rows,
+            cols,
+        }
     }
 
     pub fn get(&self, r: usize, c: usize) -> f64 {
@@ -46,11 +54,19 @@ impl Tensor2D {
 
     /// Ternarize each element to {-1, 0, +1} using threshold rounding.
     pub fn ternarize(&self, threshold: f64) -> Tensor2D {
-        let data: Vec<f64> = self.data.iter().map(|&v| {
-            if v > threshold { 1.0 }
-            else if v < -threshold { -1.0 }
-            else { 0.0 }
-        }).collect();
+        let data: Vec<f64> = self
+            .data
+            .iter()
+            .map(|&v| {
+                if v > threshold {
+                    1.0
+                } else if v < -threshold {
+                    -1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect();
         Tensor2D::new(data, self.rows, self.cols)
     }
 }
@@ -69,9 +85,13 @@ impl fmt::Display for Tensor2D {
 
 /// Ternarize a single f64 value using the given threshold.
 pub fn ternarize_value(v: f64, threshold: f64) -> f64 {
-    if v > threshold { 1.0 }
-    else if v < -threshold { -1.0 }
-    else { 0.0 }
+    if v > threshold {
+        1.0
+    } else if v < -threshold {
+        -1.0
+    } else {
+        0.0
+    }
 }
 
 // ── L1 Norm ──────────────────────────────────────────────────────────────────
@@ -205,8 +225,8 @@ impl TernaryBatchNorm {
         // Compute per-feature mean
         let mut mean = vec![0.0; features];
         for r in 0..batch {
-            for c in 0..features {
-                mean[c] += input.get(r, c);
+            for (m, &v) in mean.iter_mut().zip(input.row(r)) {
+                *m += v;
             }
         }
         for m in mean.iter_mut() {
@@ -304,7 +324,10 @@ pub fn group_norm(
     let features = input.cols;
     assert_eq!(features, gamma.len());
     assert_eq!(features, beta.len());
-    assert!(features % num_groups == 0, "features must be divisible by num_groups");
+    assert!(
+        features.is_multiple_of(num_groups),
+        "features must be divisible by num_groups"
+    );
     let group_size = features / num_groups;
 
     let mut output = Tensor2D::zeros(input.rows, features);
@@ -436,12 +459,10 @@ mod tests {
     fn test_ternary_batch_norm_output_is_balanced_ternary() {
         let input = Tensor2D::new(
             vec![
-                1.0, -1.0, 0.5,
-                -1.0, 1.0, -0.5,
-                0.5, 0.5, 1.0,
-                -0.5, -0.5, -1.0,
+                1.0, -1.0, 0.5, -1.0, 1.0, -0.5, 0.5, 0.5, 1.0, -0.5, -0.5, -1.0,
             ],
-            4, 3,
+            4,
+            3,
         );
         let mut tbn = TernaryBatchNorm::new(3);
         let output = tbn.forward(&input);
@@ -455,10 +476,7 @@ mod tests {
 
     #[test]
     fn test_ternary_batch_norm_updates_running_stats() {
-        let input = Tensor2D::new(
-            vec![1.0, -1.0, 0.0, 1.0, -1.0, 0.0],
-            2, 3,
-        );
+        let input = Tensor2D::new(vec![1.0, -1.0, 0.0, 1.0, -1.0, 0.0], 2, 3);
         let mut tbn = TernaryBatchNorm::new(3);
         let _ = tbn.forward(&input);
         // Running stats should have been updated (not still at initial values)
@@ -470,10 +488,7 @@ mod tests {
     #[test]
     fn test_layer_norm_reduces_variance() {
         // Input with high variance per row
-        let input = Tensor2D::new(
-            vec![100.0, -100.0, 50.0, -50.0],
-            1, 4,
-        );
+        let input = Tensor2D::new(vec![100.0, -100.0, 50.0, -50.0], 1, 4);
         let gamma = vec![1.0; 4];
         let beta = vec![0.0; 4];
         let output = layer_norm(&input, &gamma, &beta, 1e-5, false, 0.5);
@@ -484,15 +499,16 @@ mod tests {
         assert!(mean.abs() < 1e-10, "mean should be ~0, got {}", mean);
 
         let var: f64 = row.iter().map(|&v| (v - mean) * (v - mean)).sum::<f64>() / row.len() as f64;
-        assert!((var - 1.0).abs() < 0.1, "variance should be ~1, got {}", var);
+        assert!(
+            (var - 1.0).abs() < 0.1,
+            "variance should be ~1, got {}",
+            var
+        );
     }
 
     #[test]
     fn test_layer_norm_with_ternarization() {
-        let input = Tensor2D::new(
-            vec![10.0, -10.0, 0.0, 5.0],
-            1, 4,
-        );
+        let input = Tensor2D::new(vec![10.0, -10.0, 0.0, 5.0], 1, 4);
         let gamma = vec![1.0; 4];
         let beta = vec![0.0; 4];
         let output = layer_norm(&input, &gamma, &beta, 1e-5, true, 0.5);
@@ -506,11 +522,9 @@ mod tests {
     #[test]
     fn test_group_norm_with_different_group_sizes() {
         let input = Tensor2D::new(
-            vec![
-                1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
-                6.0, 5.0, 4.0, 3.0, 2.0, 1.0,
-            ],
-            2, 6,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+            2,
+            6,
         );
         let gamma = vec![1.0; 6];
         let beta = vec![0.0; 6];
@@ -521,7 +535,11 @@ mod tests {
         for r in 0..2 {
             // Group 0: cols 0..3
             let g0_mean: f64 = (0..3).map(|c| output_2g.get(r, c)).sum::<f64>() / 3.0;
-            assert!(g0_mean.abs() < 1e-10, "group 0 mean should be ~0, got {}", g0_mean);
+            assert!(
+                g0_mean.abs() < 1e-10,
+                "group 0 mean should be ~0, got {}",
+                g0_mean
+            );
         }
 
         // Test with 3 groups (group_size = 2)
@@ -529,7 +547,11 @@ mod tests {
         for r in 0..2 {
             // Group 0: cols 0..2
             let g0_mean: f64 = (0..2).map(|c| output_3g.get(r, c)).sum::<f64>() / 2.0;
-            assert!(g0_mean.abs() < 1e-10, "group 0 mean should be ~0, got {}", g0_mean);
+            assert!(
+                g0_mean.abs() < 1e-10,
+                "group 0 mean should be ~0, got {}",
+                g0_mean
+            );
         }
 
         // Test with 6 groups (group_size = 1, each feature normalized independently)
@@ -544,13 +566,7 @@ mod tests {
 
     #[test]
     fn test_instance_norm() {
-        let input = Tensor2D::new(
-            vec![
-                10.0, 20.0, 30.0,
-                -5.0, 0.0, 5.0,
-            ],
-            2, 3,
-        );
+        let input = Tensor2D::new(vec![10.0, 20.0, 30.0, -5.0, 0.0, 5.0], 2, 3);
         let gamma = vec![1.0; 3];
         let beta = vec![0.0; 3];
         let output = instance_norm(&input, &gamma, &beta, 1e-5, false, 0.5);
