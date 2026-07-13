@@ -791,4 +791,62 @@ mod tests {
         assert_eq!(max_norm(&[42.0]), 42.0);
         assert_eq!(max_norm(&[-42.0]), 42.0);
     }
+
+    /// Verify the README Quick Start examples actually compile and produce
+    /// the documented results against the real API.
+    #[test]
+    fn test_readme_quickstart_examples() {
+        // ── Quick Start: TernaryBatchNorm ──
+        let input = Tensor2D::new(
+            vec![
+                1.0, -1.0, 0.5, -1.0, 1.0, -0.5, 0.5, 0.5, 1.0, -0.5, -0.5, -1.0,
+            ],
+            4,
+            3,
+        );
+        let mut tbn = TernaryBatchNorm::new(3);
+        let output = tbn.forward(&input);
+        for v in &output.data {
+            assert!(
+                *v == -1.0 || *v == 0.0 || *v == 1.0,
+                "BatchNorm output not ternary: {v}"
+            );
+        }
+
+        // ── Quick Start: layer_norm ──
+        let gamma = vec![1.0; 3];
+        let beta = vec![0.0; 3];
+        let normed = layer_norm(&input, &gamma, &beta, 1e-5, true, 0.5);
+        for v in &normed.data {
+            assert!(
+                *v == -1.0 || *v == 0.0 || *v == 1.0,
+                "LayerNorm output not ternary: {v}"
+            );
+        }
+
+        // ── Quick Start: group_norm (2 groups of 3 = 6 features) ──
+        let input_6 = Tensor2D::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 1, 6);
+        let gn = group_norm(&input_6, 2, &vec![1.0; 6], &vec![0.0; 6], 1e-5, true, 0.5);
+        assert_eq!(gn.rows, 1);
+        assert_eq!(gn.cols, 6);
+
+        // ── Quick Start: l2_normalize — README claims [0.6, 0.8] ──
+        let unit = l2_normalize(&[3.0, 4.0]);
+        assert!(
+            (unit[0] - 0.6).abs() < 1e-12 && (unit[1] - 0.8).abs() < 1e-12,
+            "README claims [0.6, 0.8], got {:?}",
+            unit
+        );
+        assert!((l2_norm(&unit) - 1.0).abs() < 1e-12);
+
+        // ── Config example: TernaryBatchNormConfig struct literal ──
+        let mut _tbn2 = TernaryBatchNorm::with_config(
+            64,
+            TernaryBatchNormConfig {
+                momentum: 0.1,
+                epsilon: 1e-5,
+                threshold: 0.5,
+            },
+        );
+    }
 }

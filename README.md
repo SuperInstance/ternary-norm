@@ -2,7 +2,7 @@
 
 **Normalization that stays ternary — batch norm, layer norm, and group norm with re-ternarization.**
 
-[![Tests](https://img.shields.io/badge/tests-17%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-33%20passing-brightgreen)]()
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ## Why This Exists
@@ -219,7 +219,7 @@ Normalization sits between layers in the ternary network:
 cargo test
 ```
 
-17 tests covering: L1/L2/Max norm correctness, zero-vector edge cases, batch norm output validation (all values in {-1, 0, +1}), running statistics updates, layer norm variance reduction, group norm with different group sizes (2, 3, 6), instance norm equivalence with layer norm, tensor ternarization, and balanced distribution preservation.
+33 tests covering: L1/L2/Max norm correctness, zero-vector edge cases, L2 numerical stability (overflow/underflow), norm axioms (non-negativity, triangle inequality, homogeneity), batch norm output validation (all values in {-1, 0, +1}), running statistics updates, layer norm variance reduction, group norm with different group sizes (2, 3, 6), instance norm equivalence with layer norm, tensor ternarization, balanced distribution preservation, and README example compilation verification.
 
 ## License
 
