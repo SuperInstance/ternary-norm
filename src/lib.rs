@@ -114,8 +114,24 @@ pub fn l1_normalize(x: &[f64]) -> Vec<f64> {
 // ── L2 Norm ──────────────────────────────────────────────────────────────────
 
 /// Compute the L2 norm (Euclidean norm) of a slice.
+///
+/// Uses a numerically stable algorithm that scales by the maximum absolute
+/// element before summing squares, avoiding overflow/underflow that the naive
+/// `sqrt(Σv²)` suffers for large-magnitude vectors (e.g. `[1e200, 1e200]`
+/// would produce `inf` instead of `~1.4142e200`).
 pub fn l2_norm(x: &[f64]) -> f64 {
-    x.iter().map(|v| v * v).sum::<f64>().sqrt()
+    let max_abs = x.iter().map(|v| v.abs()).fold(0.0_f64, f64::max);
+    if max_abs == 0.0 {
+        return 0.0;
+    }
+    let sum_sq = x
+        .iter()
+        .map(|&v| {
+            let scaled = v / max_abs;
+            scaled * scaled
+        })
+        .sum::<f64>();
+    max_abs * sum_sq.sqrt()
 }
 
 /// Normalize a slice by its L2 norm so that the Euclidean length equals 1.
@@ -432,6 +448,48 @@ mod tests {
         let v = vec![0.0, 0.0];
         let normed = l2_normalize(&v);
         assert!(normed.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_l2_norm_no_overflow_on_large_values() {
+        // Classic sum-of-squares overflow trap: v*v for large v overflows to inf.
+        // True L2 norm of [1e200, 1e200] is sqrt(2)*1e200 ≈ 1.4142e200.
+        let v = vec![1e200, 1e200];
+        let n = l2_norm(&v);
+        assert!(
+            n.is_finite(),
+            "L2 norm overflowed to {n}, expected finite ~1.4142e200"
+        );
+        let expected = 1e200 * 2.0_f64.sqrt();
+        assert!(
+            (n - expected).abs() / expected < 1e-12,
+            "got {n}, expected {expected}"
+        );
+    }
+
+    #[test]
+    fn test_l2_norm_no_underflow_on_tiny_values() {
+        // Underflow trap: v*v for tiny v underflows to 0.0.
+        // True L2 norm of [1e-200, 1e-200] is sqrt(2)*1e-200.
+        let v = vec![1e-200, 1e-200];
+        let n = l2_norm(&v);
+        assert!(n > 0.0, "L2 norm underflowed to {n}, expected ~1.4142e-200");
+        let expected = 1e-200 * 2.0_f64.sqrt();
+        assert!(
+            (n - expected).abs() / expected < 1e-12,
+            "got {n}, expected {expected}"
+        );
+    }
+
+    #[test]
+    fn test_l2_norm_empty_slice() {
+        assert_eq!(l2_norm(&[]), 0.0);
+    }
+
+    #[test]
+    fn test_l2_norm_single_element() {
+        assert_eq!(l2_norm(&[42.0]), 42.0);
+        assert_eq!(l2_norm(&[-7.0]), 7.0);
     }
 
     #[test]
