@@ -671,4 +671,124 @@ mod tests {
         assert!(counts[1] > 0, "no 0 values in output");
         assert!(counts[2] > 0, "no +1 values in output");
     }
+
+    // ── Norm property tests ──────────────────────────────────────────────────
+    // These verify the three axioms a norm must satisfy:
+    //   1. Non-negativity:  ‖v‖ ≥ 0, and ‖v‖ = 0 ⟺ v = 0
+    //   2. Triangle ineq:   ‖a + b‖ ≤ ‖a‖ + ‖b‖
+    //   3. Homogeneity:     ‖c·v‖ = |c| · ‖v‖
+
+    #[test]
+    fn test_l1_non_negativity() {
+        // Zero vector → norm 0; nonzero vector → norm > 0
+        assert_eq!(l1_norm(&[0.0, 0.0, 0.0]), 0.0);
+        assert!(l1_norm(&[-3.0, 4.0, -0.5]) > 0.0);
+        // A norm must never be negative
+        assert!(l1_norm(&[-1e100, 1e100, -1e-100]) >= 0.0);
+    }
+
+    #[test]
+    fn test_l2_non_negativity() {
+        assert_eq!(l2_norm(&[0.0, 0.0]), 0.0);
+        assert!(l2_norm(&[-3.0, 4.0]) > 0.0);
+    }
+
+    #[test]
+    fn test_max_non_negativity() {
+        assert_eq!(max_norm(&[0.0, 0.0, 0.0]), 0.0);
+        assert!(max_norm(&[-3.0, 4.0, -0.5]) > 0.0);
+    }
+
+    #[test]
+    fn test_l1_triangle_inequality() {
+        // Concrete pair: a=[1,-2], b=[3,1]  →  a+b=[4,-1]
+        // ‖a‖₁=3, ‖b‖₁=4, ‖a+b‖₁=5  →  5 ≤ 7 ✓
+        let a = [1.0, -2.0];
+        let b = [3.0, 1.0];
+        let sum: Vec<f64> = a.iter().zip(&b).map(|(&x, &y)| x + y).collect();
+        assert!(l1_norm(&sum) <= l1_norm(&a) + l1_norm(&b) + 1e-12);
+        // Also verify it's strictly less for non-parallel vectors
+        assert!(l1_norm(&sum) < l1_norm(&a) + l1_norm(&b));
+    }
+
+    #[test]
+    fn test_l2_triangle_inequality() {
+        // a=[3,0], b=[0,4]  →  a+b=[3,4]
+        // ‖a‖₂=3, ‖b‖₂=4, ‖a+b‖₂=5  →  5 < 7 ✓
+        let a = [3.0, 0.0];
+        let b = [0.0, 4.0];
+        let sum: Vec<f64> = a.iter().zip(&b).map(|(&x, &y)| x + y).collect();
+        assert!(l2_norm(&sum) <= l2_norm(&a) + l2_norm(&b) + 1e-12);
+        assert!(l2_norm(&sum) < l2_norm(&a) + l2_norm(&b));
+    }
+
+    #[test]
+    fn test_max_triangle_inequality() {
+        // a=[3,-5], b=[-2,1]  →  a+b=[1,-4]
+        // ‖a‖∞=5, ‖b‖∞=2, ‖a+b‖∞=4  →  4 ≤ 7 ✓
+        let a = [3.0, -5.0];
+        let b = [-2.0, 1.0];
+        let sum: Vec<f64> = a.iter().zip(&b).map(|(&x, &y)| x + y).collect();
+        assert!(max_norm(&sum) <= max_norm(&a) + max_norm(&b));
+    }
+
+    #[test]
+    fn test_l1_homogeneity() {
+        // ‖c·v‖₁ = |c|·‖v‖₁  for c>0, c<0, c=0
+        let v = [3.0, -4.0, 1.0];
+        let base = l1_norm(&v); // 8.0
+        for &c in &[2.5, -0.5, 0.0, 100.0] {
+            let cv: Vec<f64> = v.iter().map(|&x| c * x).collect();
+            let expected = c.abs() * base;
+            assert!(
+                (l1_norm(&cv) - expected).abs() < 1e-9,
+                "c={c}: got {}, expected {expected}",
+                l1_norm(&cv)
+            );
+        }
+    }
+
+    #[test]
+    fn test_l2_homogeneity() {
+        let v = [3.0, -4.0]; // ‖v‖₂ = 5
+        let base = l2_norm(&v);
+        for &c in &[2.0, -3.0, 0.0, 0.1] {
+            let cv: Vec<f64> = v.iter().map(|&x| c * x).collect();
+            let expected = c.abs() * base;
+            assert!(
+                (l2_norm(&cv) - expected).abs() < 1e-9,
+                "c={c}: got {}, expected {expected}",
+                l2_norm(&cv)
+            );
+        }
+    }
+
+    #[test]
+    fn test_max_homogeneity() {
+        let v = [3.0, -7.0, 2.0]; // ‖v‖∞ = 7
+        let base = max_norm(&v);
+        for &c in &[2.0, -0.5, 0.0] {
+            let cv: Vec<f64> = v.iter().map(|&x| c * x).collect();
+            let expected = c.abs() * base;
+            assert!(
+                (max_norm(&cv) - expected).abs() < 1e-9,
+                "c={c}: got {}, expected {expected}",
+                max_norm(&cv)
+            );
+        }
+    }
+
+    #[test]
+    fn test_l1_empty_and_single() {
+        assert_eq!(l1_norm(&[]), 0.0);
+        assert_eq!(l1_norm(&[42.0]), 42.0);
+        assert_eq!(l1_norm(&[-42.0]), 42.0);
+    }
+
+    #[test]
+    fn test_max_empty_and_single() {
+        assert_eq!(max_norm(&[]), 0.0);
+        assert_eq!(max_norm(&[42.0]), 42.0);
+        assert_eq!(max_norm(&[-42.0]), 42.0);
+    }
 }
