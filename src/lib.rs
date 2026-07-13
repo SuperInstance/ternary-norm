@@ -826,7 +826,7 @@ mod tests {
 
         // ── Quick Start: group_norm (2 groups of 3 = 6 features) ──
         let input_6 = Tensor2D::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 1, 6);
-        let gn = group_norm(&input_6, 2, &vec![1.0; 6], &vec![0.0; 6], 1e-5, true, 0.5);
+        let gn = group_norm(&input_6, 2, &[1.0; 6], &[0.0; 6], 1e-5, true, 0.5);
         assert_eq!(gn.rows, 1);
         assert_eq!(gn.cols, 6);
 

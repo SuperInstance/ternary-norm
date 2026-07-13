@@ -45,7 +45,7 @@ let normed = layer_norm(&input, &gamma, &beta, 1e-5, true, 0.5);
 
 // Group normalization (2 groups of 3 features = 6 features total)
 let input_6 = Tensor2D::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 1, 6);
-let gn = group_norm(&input_6, 2, &vec![1.0; 6], &vec![0.0; 6], 1e-5, true, 0.5);
+let gn = group_norm(&input_6, 2, &[1.0; 6], &[0.0; 6], 1e-5, true, 0.5);
 
 // Standard vector norms (for custom pipelines)
 let unit = l2_normalize(&[3.0, 4.0]); // [0.6, 0.8], ||unit|| = 1
