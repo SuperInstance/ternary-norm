@@ -18,12 +18,20 @@ pub struct Tensor2D {
 
 impl Tensor2D {
     pub fn new(data: Vec<f64>, rows: usize, cols: usize) -> Self {
-        assert_eq!(data.len(), rows * cols, "data length must equal rows × cols");
+        assert_eq!(
+            data.len(),
+            rows * cols,
+            "data length must equal rows × cols"
+        );
         Self { data, rows, cols }
     }
 
     pub fn zeros(rows: usize, cols: usize) -> Self {
-        Self { data: vec![0.0; rows * cols], rows, cols }
+        Self {
+            data: vec![0.0; rows * cols],
+            rows,
+            cols,
+        }
     }
 
     pub fn get(&self, r: usize, c: usize) -> f64 {
@@ -46,11 +54,19 @@ impl Tensor2D {
 
     /// Ternarize each element to {-1, 0, +1} using threshold rounding.
     pub fn ternarize(&self, threshold: f64) -> Tensor2D {
-        let data: Vec<f64> = self.data.iter().map(|&v| {
-            if v > threshold { 1.0 }
-            else if v < -threshold { -1.0 }
-            else { 0.0 }
-        }).collect();
+        let data: Vec<f64> = self
+            .data
+            .iter()
+            .map(|&v| {
+                if v > threshold {
+                    1.0
+                } else if v < -threshold {
+                    -1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect();
         Tensor2D::new(data, self.rows, self.cols)
     }
 }
@@ -69,9 +85,13 @@ impl fmt::Display for Tensor2D {
 
 /// Ternarize a single f64 value using the given threshold.
 pub fn ternarize_value(v: f64, threshold: f64) -> f64 {
-    if v > threshold { 1.0 }
-    else if v < -threshold { -1.0 }
-    else { 0.0 }
+    if v > threshold {
+        1.0
+    } else if v < -threshold {
+        -1.0
+    } else {
+        0.0
+    }
 }
 
 // ── L1 Norm ──────────────────────────────────────────────────────────────────
@@ -94,8 +114,24 @@ pub fn l1_normalize(x: &[f64]) -> Vec<f64> {
 // ── L2 Norm ──────────────────────────────────────────────────────────────────
 
 /// Compute the L2 norm (Euclidean norm) of a slice.
+///
+/// Uses a numerically stable algorithm that scales by the maximum absolute
+/// element before summing squares, avoiding overflow/underflow that the naive
+/// `sqrt(Σv²)` suffers for large-magnitude vectors (e.g. `[1e200, 1e200]`
+/// would produce `inf` instead of `~1.4142e200`).
 pub fn l2_norm(x: &[f64]) -> f64 {
-    x.iter().map(|v| v * v).sum::<f64>().sqrt()
+    let max_abs = x.iter().map(|v| v.abs()).fold(0.0_f64, f64::max);
+    if max_abs == 0.0 {
+        return 0.0;
+    }
+    let sum_sq = x
+        .iter()
+        .map(|&v| {
+            let scaled = v / max_abs;
+            scaled * scaled
+        })
+        .sum::<f64>();
+    max_abs * sum_sq.sqrt()
 }
 
 /// Normalize a slice by its L2 norm so that the Euclidean length equals 1.
@@ -205,8 +241,8 @@ impl TernaryBatchNorm {
         // Compute per-feature mean
         let mut mean = vec![0.0; features];
         for r in 0..batch {
-            for c in 0..features {
-                mean[c] += input.get(r, c);
+            for (m, &v) in mean.iter_mut().zip(input.row(r)) {
+                *m += v;
             }
         }
         for m in mean.iter_mut() {
@@ -304,7 +340,10 @@ pub fn group_norm(
     let features = input.cols;
     assert_eq!(features, gamma.len());
     assert_eq!(features, beta.len());
-    assert!(features % num_groups == 0, "features must be divisible by num_groups");
+    assert!(
+        features.is_multiple_of(num_groups),
+        "features must be divisible by num_groups"
+    );
     let group_size = features / num_groups;
 
     let mut output = Tensor2D::zeros(input.rows, features);
@@ -412,6 +451,48 @@ mod tests {
     }
 
     #[test]
+    fn test_l2_norm_no_overflow_on_large_values() {
+        // Classic sum-of-squares overflow trap: v*v for large v overflows to inf.
+        // True L2 norm of [1e200, 1e200] is sqrt(2)*1e200 ≈ 1.4142e200.
+        let v = vec![1e200, 1e200];
+        let n = l2_norm(&v);
+        assert!(
+            n.is_finite(),
+            "L2 norm overflowed to {n}, expected finite ~1.4142e200"
+        );
+        let expected = 1e200 * 2.0_f64.sqrt();
+        assert!(
+            (n - expected).abs() / expected < 1e-12,
+            "got {n}, expected {expected}"
+        );
+    }
+
+    #[test]
+    fn test_l2_norm_no_underflow_on_tiny_values() {
+        // Underflow trap: v*v for tiny v underflows to 0.0.
+        // True L2 norm of [1e-200, 1e-200] is sqrt(2)*1e-200.
+        let v = vec![1e-200, 1e-200];
+        let n = l2_norm(&v);
+        assert!(n > 0.0, "L2 norm underflowed to {n}, expected ~1.4142e-200");
+        let expected = 1e-200 * 2.0_f64.sqrt();
+        assert!(
+            (n - expected).abs() / expected < 1e-12,
+            "got {n}, expected {expected}"
+        );
+    }
+
+    #[test]
+    fn test_l2_norm_empty_slice() {
+        assert_eq!(l2_norm(&[]), 0.0);
+    }
+
+    #[test]
+    fn test_l2_norm_single_element() {
+        assert_eq!(l2_norm(&[42.0]), 42.0);
+        assert_eq!(l2_norm(&[-7.0]), 7.0);
+    }
+
+    #[test]
     fn test_max_norm_correctness() {
         let v = vec![-5.0, 3.0, -2.0, 4.0];
         assert_eq!(max_norm(&v), 5.0);
@@ -436,12 +517,10 @@ mod tests {
     fn test_ternary_batch_norm_output_is_balanced_ternary() {
         let input = Tensor2D::new(
             vec![
-                1.0, -1.0, 0.5,
-                -1.0, 1.0, -0.5,
-                0.5, 0.5, 1.0,
-                -0.5, -0.5, -1.0,
+                1.0, -1.0, 0.5, -1.0, 1.0, -0.5, 0.5, 0.5, 1.0, -0.5, -0.5, -1.0,
             ],
-            4, 3,
+            4,
+            3,
         );
         let mut tbn = TernaryBatchNorm::new(3);
         let output = tbn.forward(&input);
@@ -455,10 +534,7 @@ mod tests {
 
     #[test]
     fn test_ternary_batch_norm_updates_running_stats() {
-        let input = Tensor2D::new(
-            vec![1.0, -1.0, 0.0, 1.0, -1.0, 0.0],
-            2, 3,
-        );
+        let input = Tensor2D::new(vec![1.0, -1.0, 0.0, 1.0, -1.0, 0.0], 2, 3);
         let mut tbn = TernaryBatchNorm::new(3);
         let _ = tbn.forward(&input);
         // Running stats should have been updated (not still at initial values)
@@ -470,10 +546,7 @@ mod tests {
     #[test]
     fn test_layer_norm_reduces_variance() {
         // Input with high variance per row
-        let input = Tensor2D::new(
-            vec![100.0, -100.0, 50.0, -50.0],
-            1, 4,
-        );
+        let input = Tensor2D::new(vec![100.0, -100.0, 50.0, -50.0], 1, 4);
         let gamma = vec![1.0; 4];
         let beta = vec![0.0; 4];
         let output = layer_norm(&input, &gamma, &beta, 1e-5, false, 0.5);
@@ -484,15 +557,16 @@ mod tests {
         assert!(mean.abs() < 1e-10, "mean should be ~0, got {}", mean);
 
         let var: f64 = row.iter().map(|&v| (v - mean) * (v - mean)).sum::<f64>() / row.len() as f64;
-        assert!((var - 1.0).abs() < 0.1, "variance should be ~1, got {}", var);
+        assert!(
+            (var - 1.0).abs() < 0.1,
+            "variance should be ~1, got {}",
+            var
+        );
     }
 
     #[test]
     fn test_layer_norm_with_ternarization() {
-        let input = Tensor2D::new(
-            vec![10.0, -10.0, 0.0, 5.0],
-            1, 4,
-        );
+        let input = Tensor2D::new(vec![10.0, -10.0, 0.0, 5.0], 1, 4);
         let gamma = vec![1.0; 4];
         let beta = vec![0.0; 4];
         let output = layer_norm(&input, &gamma, &beta, 1e-5, true, 0.5);
@@ -506,11 +580,9 @@ mod tests {
     #[test]
     fn test_group_norm_with_different_group_sizes() {
         let input = Tensor2D::new(
-            vec![
-                1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
-                6.0, 5.0, 4.0, 3.0, 2.0, 1.0,
-            ],
-            2, 6,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+            2,
+            6,
         );
         let gamma = vec![1.0; 6];
         let beta = vec![0.0; 6];
@@ -521,7 +593,11 @@ mod tests {
         for r in 0..2 {
             // Group 0: cols 0..3
             let g0_mean: f64 = (0..3).map(|c| output_2g.get(r, c)).sum::<f64>() / 3.0;
-            assert!(g0_mean.abs() < 1e-10, "group 0 mean should be ~0, got {}", g0_mean);
+            assert!(
+                g0_mean.abs() < 1e-10,
+                "group 0 mean should be ~0, got {}",
+                g0_mean
+            );
         }
 
         // Test with 3 groups (group_size = 2)
@@ -529,7 +605,11 @@ mod tests {
         for r in 0..2 {
             // Group 0: cols 0..2
             let g0_mean: f64 = (0..2).map(|c| output_3g.get(r, c)).sum::<f64>() / 2.0;
-            assert!(g0_mean.abs() < 1e-10, "group 0 mean should be ~0, got {}", g0_mean);
+            assert!(
+                g0_mean.abs() < 1e-10,
+                "group 0 mean should be ~0, got {}",
+                g0_mean
+            );
         }
 
         // Test with 6 groups (group_size = 1, each feature normalized independently)
@@ -544,13 +624,7 @@ mod tests {
 
     #[test]
     fn test_instance_norm() {
-        let input = Tensor2D::new(
-            vec![
-                10.0, 20.0, 30.0,
-                -5.0, 0.0, 5.0,
-            ],
-            2, 3,
-        );
+        let input = Tensor2D::new(vec![10.0, 20.0, 30.0, -5.0, 0.0, 5.0], 2, 3);
         let gamma = vec![1.0; 3];
         let beta = vec![0.0; 3];
         let output = instance_norm(&input, &gamma, &beta, 1e-5, false, 0.5);
@@ -596,5 +670,183 @@ mod tests {
         assert!(counts[0] > 0, "no -1 values in output");
         assert!(counts[1] > 0, "no 0 values in output");
         assert!(counts[2] > 0, "no +1 values in output");
+    }
+
+    // ── Norm property tests ──────────────────────────────────────────────────
+    // These verify the three axioms a norm must satisfy:
+    //   1. Non-negativity:  ‖v‖ ≥ 0, and ‖v‖ = 0 ⟺ v = 0
+    //   2. Triangle ineq:   ‖a + b‖ ≤ ‖a‖ + ‖b‖
+    //   3. Homogeneity:     ‖c·v‖ = |c| · ‖v‖
+
+    #[test]
+    fn test_l1_non_negativity() {
+        // Zero vector → norm 0; nonzero vector → norm > 0
+        assert_eq!(l1_norm(&[0.0, 0.0, 0.0]), 0.0);
+        assert!(l1_norm(&[-3.0, 4.0, -0.5]) > 0.0);
+        // A norm must never be negative
+        assert!(l1_norm(&[-1e100, 1e100, -1e-100]) >= 0.0);
+    }
+
+    #[test]
+    fn test_l2_non_negativity() {
+        assert_eq!(l2_norm(&[0.0, 0.0]), 0.0);
+        assert!(l2_norm(&[-3.0, 4.0]) > 0.0);
+    }
+
+    #[test]
+    fn test_max_non_negativity() {
+        assert_eq!(max_norm(&[0.0, 0.0, 0.0]), 0.0);
+        assert!(max_norm(&[-3.0, 4.0, -0.5]) > 0.0);
+    }
+
+    #[test]
+    fn test_l1_triangle_inequality() {
+        // Concrete pair: a=[1,-2], b=[3,1]  →  a+b=[4,-1]
+        // ‖a‖₁=3, ‖b‖₁=4, ‖a+b‖₁=5  →  5 ≤ 7 ✓
+        let a = [1.0, -2.0];
+        let b = [3.0, 1.0];
+        let sum: Vec<f64> = a.iter().zip(&b).map(|(&x, &y)| x + y).collect();
+        assert!(l1_norm(&sum) <= l1_norm(&a) + l1_norm(&b) + 1e-12);
+        // Also verify it's strictly less for non-parallel vectors
+        assert!(l1_norm(&sum) < l1_norm(&a) + l1_norm(&b));
+    }
+
+    #[test]
+    fn test_l2_triangle_inequality() {
+        // a=[3,0], b=[0,4]  →  a+b=[3,4]
+        // ‖a‖₂=3, ‖b‖₂=4, ‖a+b‖₂=5  →  5 < 7 ✓
+        let a = [3.0, 0.0];
+        let b = [0.0, 4.0];
+        let sum: Vec<f64> = a.iter().zip(&b).map(|(&x, &y)| x + y).collect();
+        assert!(l2_norm(&sum) <= l2_norm(&a) + l2_norm(&b) + 1e-12);
+        assert!(l2_norm(&sum) < l2_norm(&a) + l2_norm(&b));
+    }
+
+    #[test]
+    fn test_max_triangle_inequality() {
+        // a=[3,-5], b=[-2,1]  →  a+b=[1,-4]
+        // ‖a‖∞=5, ‖b‖∞=2, ‖a+b‖∞=4  →  4 ≤ 7 ✓
+        let a = [3.0, -5.0];
+        let b = [-2.0, 1.0];
+        let sum: Vec<f64> = a.iter().zip(&b).map(|(&x, &y)| x + y).collect();
+        assert!(max_norm(&sum) <= max_norm(&a) + max_norm(&b));
+    }
+
+    #[test]
+    fn test_l1_homogeneity() {
+        // ‖c·v‖₁ = |c|·‖v‖₁  for c>0, c<0, c=0
+        let v = [3.0, -4.0, 1.0];
+        let base = l1_norm(&v); // 8.0
+        for &c in &[2.5, -0.5, 0.0, 100.0] {
+            let cv: Vec<f64> = v.iter().map(|&x| c * x).collect();
+            let expected = c.abs() * base;
+            assert!(
+                (l1_norm(&cv) - expected).abs() < 1e-9,
+                "c={c}: got {}, expected {expected}",
+                l1_norm(&cv)
+            );
+        }
+    }
+
+    #[test]
+    fn test_l2_homogeneity() {
+        let v = [3.0, -4.0]; // ‖v‖₂ = 5
+        let base = l2_norm(&v);
+        for &c in &[2.0, -3.0, 0.0, 0.1] {
+            let cv: Vec<f64> = v.iter().map(|&x| c * x).collect();
+            let expected = c.abs() * base;
+            assert!(
+                (l2_norm(&cv) - expected).abs() < 1e-9,
+                "c={c}: got {}, expected {expected}",
+                l2_norm(&cv)
+            );
+        }
+    }
+
+    #[test]
+    fn test_max_homogeneity() {
+        let v = [3.0, -7.0, 2.0]; // ‖v‖∞ = 7
+        let base = max_norm(&v);
+        for &c in &[2.0, -0.5, 0.0] {
+            let cv: Vec<f64> = v.iter().map(|&x| c * x).collect();
+            let expected = c.abs() * base;
+            assert!(
+                (max_norm(&cv) - expected).abs() < 1e-9,
+                "c={c}: got {}, expected {expected}",
+                max_norm(&cv)
+            );
+        }
+    }
+
+    #[test]
+    fn test_l1_empty_and_single() {
+        assert_eq!(l1_norm(&[]), 0.0);
+        assert_eq!(l1_norm(&[42.0]), 42.0);
+        assert_eq!(l1_norm(&[-42.0]), 42.0);
+    }
+
+    #[test]
+    fn test_max_empty_and_single() {
+        assert_eq!(max_norm(&[]), 0.0);
+        assert_eq!(max_norm(&[42.0]), 42.0);
+        assert_eq!(max_norm(&[-42.0]), 42.0);
+    }
+
+    /// Verify the README Quick Start examples actually compile and produce
+    /// the documented results against the real API.
+    #[test]
+    fn test_readme_quickstart_examples() {
+        // ── Quick Start: TernaryBatchNorm ──
+        let input = Tensor2D::new(
+            vec![
+                1.0, -1.0, 0.5, -1.0, 1.0, -0.5, 0.5, 0.5, 1.0, -0.5, -0.5, -1.0,
+            ],
+            4,
+            3,
+        );
+        let mut tbn = TernaryBatchNorm::new(3);
+        let output = tbn.forward(&input);
+        for v in &output.data {
+            assert!(
+                *v == -1.0 || *v == 0.0 || *v == 1.0,
+                "BatchNorm output not ternary: {v}"
+            );
+        }
+
+        // ── Quick Start: layer_norm ──
+        let gamma = vec![1.0; 3];
+        let beta = vec![0.0; 3];
+        let normed = layer_norm(&input, &gamma, &beta, 1e-5, true, 0.5);
+        for v in &normed.data {
+            assert!(
+                *v == -1.0 || *v == 0.0 || *v == 1.0,
+                "LayerNorm output not ternary: {v}"
+            );
+        }
+
+        // ── Quick Start: group_norm (2 groups of 3 = 6 features) ──
+        let input_6 = Tensor2D::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 1, 6);
+        let gn = group_norm(&input_6, 2, &[1.0; 6], &[0.0; 6], 1e-5, true, 0.5);
+        assert_eq!(gn.rows, 1);
+        assert_eq!(gn.cols, 6);
+
+        // ── Quick Start: l2_normalize — README claims [0.6, 0.8] ──
+        let unit = l2_normalize(&[3.0, 4.0]);
+        assert!(
+            (unit[0] - 0.6).abs() < 1e-12 && (unit[1] - 0.8).abs() < 1e-12,
+            "README claims [0.6, 0.8], got {:?}",
+            unit
+        );
+        assert!((l2_norm(&unit) - 1.0).abs() < 1e-12);
+
+        // ── Config example: TernaryBatchNormConfig struct literal ──
+        let mut _tbn2 = TernaryBatchNorm::with_config(
+            64,
+            TernaryBatchNormConfig {
+                momentum: 0.1,
+                epsilon: 1e-5,
+                threshold: 0.5,
+            },
+        );
     }
 }

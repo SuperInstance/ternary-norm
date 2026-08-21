@@ -2,7 +2,7 @@
 
 **Normalization that stays ternary — batch norm, layer norm, and group norm with re-ternarization.**
 
-[![Tests](https://img.shields.io/badge/tests-17%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-33%20passing-brightgreen)]()
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ## Why This Exists
@@ -45,7 +45,7 @@ let normed = layer_norm(&input, &gamma, &beta, 1e-5, true, 0.5);
 
 // Group normalization (2 groups of 3 features = 6 features total)
 let input_6 = Tensor2D::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 1, 6);
-let gn = group_norm(&input_6, 2, &vec![1.0; 6], &vec![0.0; 6], 1e-5, true, 0.5);
+let gn = group_norm(&input_6, 2, &[1.0; 6], &[0.0; 6], 1e-5, true, 0.5);
 
 // Standard vector norms (for custom pipelines)
 let unit = l2_normalize(&[3.0, 4.0]); // [0.6, 0.8], ||unit|| = 1
@@ -219,7 +219,7 @@ Normalization sits between layers in the ternary network:
 cargo test
 ```
 
-17 tests covering: L1/L2/Max norm correctness, zero-vector edge cases, batch norm output validation (all values in {-1, 0, +1}), running statistics updates, layer norm variance reduction, group norm with different group sizes (2, 3, 6), instance norm equivalence with layer norm, tensor ternarization, and balanced distribution preservation.
+33 tests covering: L1/L2/Max norm correctness, zero-vector edge cases, L2 numerical stability (overflow/underflow), norm axioms (non-negativity, triangle inequality, homogeneity), batch norm output validation (all values in {-1, 0, +1}), running statistics updates, layer norm variance reduction, group norm with different group sizes (2, 3, 6), instance norm equivalence with layer norm, tensor ternarization, balanced distribution preservation, and README example compilation verification.
 
 ## License
 
